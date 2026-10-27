@@ -1,0 +1,222 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>回覧板を送る</title>
+<style>
+  :root {
+    --bg: #F6F3EC; --ink: #1E1E1E; --sub: #4A4A4A; --card: #FFFFFF;
+    --green: #1F6F4A; --green-dark: #14513A; --line: #C9C2B2; --err: #B3261E;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root { --bg: #1B1D1B; --ink: #F2F2F2; --sub: #CFCFCF; --card: #262926;
+            --green: #3FA877; --green-dark: #5BC092; --line: #4B504B; --err: #FF8A80; }
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; background: var(--bg); color: var(--ink);
+    font-family: "BIZ UDPGothic", "Hiragino Sans", "Yu Gothic UI", Meiryo, sans-serif;
+    font-size: 22px; line-height: 1.7;
+  }
+  main { max-width: 640px; margin: 0 auto; padding: 28px 20px 60px; }
+  h1 { font-size: 34px; margin: 0 0 6px; }
+  .lead { margin: 0 0 28px; color: var(--sub); }
+  .step { background: var(--card); border: 2px solid var(--line); border-radius: 16px;
+          padding: 20px; margin-bottom: 20px; }
+  .step h2 { font-size: 24px; margin: 0 0 12px; }
+  .step .n { display: inline-block; width: 40px; height: 40px; line-height: 40px; text-align: center;
+             border-radius: 50%; background: var(--green); color: #fff; margin-right: 10px; }
+  input[type=text] {
+    width: 100%; font: inherit; padding: 14px; border: 2px solid var(--line); border-radius: 12px;
+    background: var(--bg); color: var(--ink);
+  }
+  input[type=file] { display: none; }
+  .btn { display: block; width: 100%; font: inherit; font-weight: bold; font-size: 26px;
+         padding: 20px; border-radius: 14px; border: 0; cursor: pointer; text-align: center;
+         background: var(--green); color: #fff; }
+  .btn:hover { background: var(--green-dark); }
+  .btn.ghost { background: transparent; color: var(--green); border: 3px solid var(--green); }
+  .btn:disabled { opacity: .5; cursor: not-allowed; }
+  .btn:focus-visible, input:focus-visible { outline: 4px solid #F2A900; outline-offset: 3px; }
+  #fileName { margin-top: 12px; font-weight: bold; word-break: break-all; }
+  #msg { margin-top: 18px; padding: 18px; border-radius: 14px; font-weight: bold; display: none; }
+  #msg.ok { display: block; background: #DDF1E5; color: #0E4A2F; border: 2px solid var(--green); }
+  #msg.ng { display: block; background: #FBE3E0; color: var(--err); border: 2px solid var(--err); }
+  @media (prefers-color-scheme: dark) {
+    #msg.ok { background: #1E3A2C; color: #BFEBD2; }
+    #msg.ng { background: #3C1F1C; color: #FFB4AB; }
+  }
+  #list { list-style: none; margin: 14px 0 0; padding: 0; display: grid; gap: 14px; }
+  #list li { border: 2px solid var(--line); border-radius: 14px; padding: 12px; background: var(--bg); }
+  #list .pv { width: 100%; height: 220px; object-fit: contain; border-radius: 10px; background: #00000010; display: block; }
+  #list .doc { height: 120px; display: flex; align-items: center; justify-content: center; font-size: 34px;
+               font-weight: bold; color: var(--green); border-radius: 10px; background: #00000010; }
+  #list .nm { margin: 8px 0; font-weight: bold; word-break: break-all; font-size: 20px; }
+  .rm { font: inherit; font-size: 20px; font-weight: bold; padding: 10px 16px; border-radius: 10px;
+        border: 2px solid var(--err); background: transparent; color: var(--err); cursor: pointer; }
+  #count { margin-top: 12px; font-weight: bold; }
+  small { color: var(--sub); font-size: 18px; }
+</style>
+</head>
+<body>
+<main>
+  <h1>回覧板を送る</h1>
+  <p class="lead">3つの手順で、LINEの友だち全員に届きます。</p>
+
+  <section class="step">
+    <h2><span class="n">1</span>送るものを選ぶ</h2>
+    <button class="btn ghost" id="pick" type="button">ファイル・写真を選ぶ</button>
+    <input type="file" id="file" multiple accept="image/*,application/pdf,.pdf,.doc,.docx,application/msword,application/vnd.openxmlformats-officedocument.wordprocessingml.document">
+    <small>PDF・写真・Wordが、まとめて10個まで送れます。続けて選ぶと追加されます。(PDFとWordは1つ4MBまで)</small>
+    <ul id="list" aria-live="polite"></ul>
+    <div id="count">まだ選んでいません</div>
+  </section>
+
+  <section class="step">
+    <h2><span class="n">2</span>題名を書く</h2>
+    <input type="text" id="title" maxlength="100" placeholder="例:10月の防災訓練のお知らせ">
+    <small>書かなくても大丈夫です(ファイル名が題名になります)。</small>
+  </section>
+
+  <section class="step">
+    <h2><span class="n">3</span>送る</h2>
+    <button class="btn" id="send" type="button">送信する</button>
+  </section>
+
+  <div id="msg" role="status" aria-live="polite"></div>
+</main>
+
+<script>
+const $ = id => document.getElementById(id);
+const fileInput = $("file"), msg = $("msg"), sendBtn = $("send"), list = $("list");
+const MAX = 10;
+let picked = [];   // 選んだファイルの一覧
+const thumbs = new Map();   // ファイル → プレビュー画像(小さく縮小したもの)
+
+// 写真を小さく縮小してプレビュー用の画像にする(向きも自動で直る)
+async function makeThumb(f) {
+  try {
+    const bmp = await createImageBitmap(f);
+    const s = Math.min(1, 700 / Math.max(bmp.width, bmp.height));
+    const c = document.createElement("canvas");
+    c.width = Math.max(1, Math.round(bmp.width * s)); c.height = Math.max(1, Math.round(bmp.height * s));
+    const ctx = c.getContext("2d");
+    ctx.fillStyle = "#fff"; ctx.fillRect(0, 0, c.width, c.height);
+    ctx.drawImage(bmp, 0, 0, c.width, c.height);
+    return c.toDataURL("image/jpeg", 0.8);
+  } catch (e) {}
+  return new Promise(res => {   // 上が使えない環境ではこちら
+    const r = new FileReader();
+    r.onload = () => res(r.result); r.onerror = () => res(null);
+    r.readAsDataURL(f);
+  });
+}
+
+function show(text, ok) { msg.textContent = text; msg.className = ok ? "ok" : "ng"; }
+
+function isImage(f) { return f.type.startsWith("image/") || /\.(jpe?g|png|gif|webp|heic|heif)$/i.test(f.name); }
+function kindLabel(f) { return /\.pdf$/i.test(f.name) ? "PDF" : /\.docx?$/i.test(f.name) ? "Word" : "ファイル"; }
+
+function render() {
+  list.innerHTML = "";
+  picked.forEach((f, i) => {
+    const li = document.createElement("li");
+    let pv;
+    if (isImage(f)) {
+      const src = thumbs.get(f);
+      if (src) {
+        pv = document.createElement("img");
+        pv.className = "pv"; pv.alt = "選んだ写真: " + f.name; pv.src = src;
+        pv.onerror = () => { const d = document.createElement("div"); d.className = "doc"; d.textContent = "写真"; pv.replaceWith(d); };
+      } else {
+        pv = document.createElement("div"); pv.className = "doc";
+        pv.textContent = thumbs.has(f) ? "写真" : "読み込み中…";   // 表示できない形式でも送信はできる
+      }
+    } else {
+      pv = document.createElement("div"); pv.className = "doc"; pv.textContent = kindLabel(f);
+    }
+    const nm = document.createElement("div"); nm.className = "nm"; nm.textContent = f.name;
+    const rm = document.createElement("button");
+    rm.type = "button"; rm.className = "rm"; rm.textContent = "取り消す";
+    rm.onclick = () => { thumbs.delete(picked[i]); picked.splice(i, 1); render(); msg.className = ""; };
+    li.append(pv, nm, rm);
+    list.append(li);
+  });
+  $("count").textContent = picked.length ? picked.length + "個 選んでいます" : "まだ選んでいません";
+}
+
+$("pick").onclick = () => fileInput.click();
+fileInput.onchange = async () => {
+  const added = [];
+  for (const f of fileInput.files) {
+    if (picked.some(p => p.name === f.name && p.size === f.size && p.lastModified === f.lastModified)) continue;
+    if (picked.length >= MAX) { show("一度に送れるのは" + MAX + "個までです。", false); break; }
+    picked.push(f); added.push(f);
+  }
+  render();   // まず一覧を出し、写真は読み込めたものから順に表示する
+  for (const f of added) {
+    if (isImage(f)) { thumbs.set(f, await makeThumb(f)); render(); }
+  }
+  fileInput.value = "";   // 読み込みが終わってから空にする(同じものを選び直せるように)
+};
+
+// 写真を縮小したJPEGにする
+async function toJpeg(bmp, max, q) {
+  const s = Math.min(1, max / Math.max(bmp.width, bmp.height));
+  const c = document.createElement("canvas");
+  c.width = Math.max(1, Math.round(bmp.width * s)); c.height = Math.max(1, Math.round(bmp.height * s));
+  const ctx = c.getContext("2d"); ctx.fillStyle = "#fff"; ctx.fillRect(0, 0, c.width, c.height);
+  ctx.drawImage(bmp, 0, 0, c.width, c.height);
+  return new Promise((res, rej) => c.toBlob(b => b ? res(b) : rej(new Error("toBlob")), "image/jpeg", q));
+}
+
+async function upload(blob) {
+  const res = await fetch("/api/upload", { method: "POST", body: blob });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok || !data.ok) throw new Error(data.message || "アップロードできませんでした。");
+  return data.id;
+}
+
+sendBtn.onclick = async () => {
+  if (!picked.length) return show("先に「ファイル・写真を選ぶ」を押して、送るものを選んでください。", false);
+  const t = $("title").value.trim();
+  if (!confirm((t ? "「" + t + "」" : picked.length + "個のもの") + "を\nLINEの友だち全員に送ります。\nよろしいですか?")) return;
+
+  sendBtn.disabled = true; msg.className = "";
+  try {
+    const items = [];
+    for (let i = 0; i < picked.length; i++) {
+      const f = picked[i];
+      sendBtn.textContent = "送信中… (" + (i + 1) + " / " + picked.length + ")";
+      const name = f.name.replace(/\.[^.]*$/, "") || "回覧板";
+      if (isImage(f)) {
+        let bmp;
+        try { bmp = await createImageBitmap(f); }
+        catch (e) { throw new Error("「" + f.name + "」は写真として読み込めませんでした。"); }
+        const id = await upload(await toJpeg(bmp, 2000, 0.85));
+        const previewId = await upload(await toJpeg(bmp, 1024, 0.8));
+        items.push({ id, previewId, name });
+      } else {
+        if (f.size > 4 * 1024 * 1024) throw new Error("「" + f.name + "」が大きすぎます(1つ4MBまで)。");
+        items.push({ id: await upload(f), name });
+      }
+    }
+    const res = await fetch("/api/broadcast", {
+      method: "POST", headers: { "content-type": "application/json" },
+      body: JSON.stringify({ title: $("title").value, items }),
+    });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok || !data.ok) throw new Error(data.message || "送信できませんでした。もう一度お試しください。");
+    show("送信できました。友だち全員に届きます。", true);
+    picked = []; thumbs.clear(); $("title").value = ""; render();
+  } catch (e) {
+    show(e.message && !/Failed to fetch|NetworkError/.test(e.message) ? e.message
+         : "通信できませんでした。インターネットにつながっているか確認してください。", false);
+  } finally {
+    sendBtn.disabled = false; sendBtn.textContent = "送信する";
+  }
+};
+</script>
+</body>
+</html>
