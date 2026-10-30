@@ -1,6 +1,6 @@
 // Cloudflare Workers 版:回覧板をLINEの友だち全員に送る
 // 画面(public/index.html)は Workers の静的アセットとして自動配信されます。
-// ファイルの保存先は R2(バインディング名: BUCKET)です。
+// ファイルの保存先は Workers KV(バインディング名: FILES)です。クレジットカード不要の無料枠で使えます。
 
 const MAX = 4 * 1024 * 1024; // 1ファイル4MBまで
 const ID = /^[0-9a-f]{32}\.(pdf|jpg|doc|docx)$/;
@@ -36,7 +36,7 @@ async function upload(req, env) {
   if (!ext) return json({ ok: false, message: "このファイルは送れません。PDF・写真・Wordを選んでください。" }, 400);
 
   const id = crypto.randomUUID().replaceAll("-", "") + "." + ext;
-  await env.BUCKET.put(id, data, { httpMetadata: { contentType: TYPES[ext] } });
+  await env.FILES.put(id, data);
   return json({ ok: true, id });
 }
 
@@ -44,8 +44,8 @@ async function upload(req, env) {
 async function files(id, env) {
   const m = ID.exec(id || "");
   if (!m) return new Response("Not found", { status: 404 });
-  const obj = await env.BUCKET.get(id);
-  if (!obj) return new Response("Not found", { status: 404 });
+  const body = await env.FILES.get(id, { type: "arrayBuffer" });
+  if (!body) return new Response("Not found", { status: 404 });
   const headers = {
     "content-type": TYPES[m[1]],
     "cache-control": "public, max-age=31536000, immutable",
@@ -54,7 +54,7 @@ async function files(id, env) {
   if (m[1] === "doc" || m[1] === "docx") {
     headers["content-disposition"] = 'attachment; filename="kairanban.' + m[1] + '"';
   }
-  return new Response(obj.body, { headers });
+  return new Response(body, { headers });
 }
 
 // ---- LINEのカード(Flex Message)を作る ----
@@ -115,7 +115,7 @@ async function broadcast(req, env) {
   const origin = new URL(req.url).origin;
   const title = String(input.title || "").trim().slice(0, 100);
   const missing = () => json({ ok: false, message: "ファイルが見つかりません。もう一度やり直してください。" }, 400);
-  const exists = async (id) => !!(await env.BUCKET.head(id));
+  const exists = async (id) => !!(await env.FILES.get(id, { type: "stream" }));
 
   const bubbles = [];
   for (let i = 0; i < items.length; i++) {
